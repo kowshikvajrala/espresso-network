@@ -55,6 +55,18 @@ use crate::{
     vote::VoteCollector,
 };
 
+/// Number of views below the newest decided view for which we retain in-flight
+/// VID reconstruction tasks (and their accumulated shares).
+///
+/// A leaf can be decided as an ancestor in a multi-leaf decide batch while this
+/// node is still reconstructing its payload (e.g. shares arrived late or the
+/// node is catching up). Garbage collecting reconstruction at the newest decided
+/// view would abort that task, and on a replica reconstruction is the only local
+/// path that writes the payload to the availability store (via
+/// `BlockPayloadReconstructed`). Keeping a margin of views lets a just-decided
+/// view's reconstruction finish before its task is reaped.
+const VID_RECONSTRUCT_GC_MARGIN: u64 = 10;
+
 #[allow(clippy::large_enum_variant)]
 pub enum CoordinatorOutput<T: NodeType> {
     Consensus(ConsensusOutput<T>),
@@ -1397,7 +1409,12 @@ where
                 self.pending_proposal_fetches.gc(view);
                 self.state_manager.gc(view);
                 self.storage.gc(view);
-                self.vid_reconstructor.gc(view);
+                // Retain reconstruction for a margin of views below the decided
+                // view: a just-decided ancestor may still be reconstructing, and
+                // aborting it would lose the payload on replicas (see
+                // VID_RECONSTRUCT_GC_MARGIN).
+                self.vid_reconstructor
+                    .gc(view.saturating_sub(VID_RECONSTRUCT_GC_MARGIN).into());
             },
         }
         Ok(())

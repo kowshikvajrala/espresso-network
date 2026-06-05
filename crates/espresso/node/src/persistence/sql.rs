@@ -921,11 +921,16 @@ impl Persistence {
 
             let mut parent = None;
             let mut rows = query(
-                "SELECT leaf, qc, next_epoch_qc FROM anchor_leaf2 WHERE view >= $1 ORDER BY view",
+                "SELECT leaf, qc, next_epoch_qc, vid_share FROM anchor_leaf2 WHERE view >= $1 \
+                 ORDER BY view",
             )
             .bind(from_view)
             .fetch(tx.as_mut());
-            let mut leaves: Vec<(Leaf2, CertificatePair<SeqTypes>)> = vec![];
+            let mut leaves: Vec<(
+                Leaf2,
+                CertificatePair<SeqTypes>,
+                Option<VidDisperseShare<SeqTypes>>,
+            )> = vec![];
             let mut final_qc = None;
             while let Some(row) = rows.next().await {
                 let row = match row {
@@ -948,6 +953,20 @@ impl Persistence {
                     },
                     None => None,
                 };
+                // VID share captured with the decided leaf (see persist_decided_leaves). Used to
+                // fill in the share when the separate `vid_share2` row is absent.
+                let vid_share = match row.get::<Option<Vec<u8>>, _>("vid_share") {
+                    Some(bytes) => {
+                        bincode::deserialize::<Option<VidDisperseShare<SeqTypes>>>(&bytes)?
+                    },
+                    None => None,
+                };
+                if vid_share.is_none() {
+                    tracing::error!(
+                        view = leaf.view_number().u64(),
+                        "no VID share stored for decided leaf"
+                    );
+                }
                 let height = leaf.block_header().block_number();
 
                 // Ensure we are only dealing with a consecutive chain of leaves. We don't want to
@@ -966,7 +985,7 @@ impl Persistence {
                 parent = Some(height);
                 let cert = CertificatePair::new(qc, next_epoch_qc);
                 final_qc = Some(cert.clone());
-                leaves.push((leaf, cert));
+                leaves.push((leaf, cert, vid_share));
             }
             drop(rows);
 
@@ -1048,15 +1067,20 @@ impl Persistence {
                 .into_iter()
                 // Go in reverse chronological order, as expected by Decide events.
                 .rev()
-                .map(|(mut leaf, cert)| {
+                .map(|(mut leaf, cert, anchor_vid_share)| {
                     let view = leaf.view_number();
 
-                    // Include the VID share if available.
-                    let vid_proposal = vid_shares.remove(&view);
-                    if vid_proposal.is_none() {
+                    // Include the VID share if available. Prefer the share captured with the
+                    // decided leaf (`anchor_leaf2`); fall back to the separately-persisted
+                    // `vid_share2` row, which may not have landed when this leaf was decided.
+                    let vid_share = anchor_vid_share.or_else(|| {
+                        vid_shares
+                            .remove(&view)
+                            .map(|proposal| proposal.data.clone())
+                    });
+                    if vid_share.is_none() {
                         tracing::debug!(?view, "VID share not available at decide");
                     }
-                    let vid_share = vid_proposal.as_ref().map(|proposal| proposal.data.clone());
 
                     // Fill in the full block payload using the DA proposals we had persisted.
                     if let Some(proposal) = da_proposals.remove(&view) {
@@ -1597,7 +1621,29 @@ impl SequencerPersistence for Persistence {
                     Some(qc) => Some(bincode::serialize(qc)?),
                     None => None,
                 };
-                Ok((view, leaf_bytes, qc_bytes, next_epoch_qc_bytes))
+                // Persist the VID share we received with the decided leaf. The share is also
+                // written separately to `vid_share2` by `append_vid`, but that write is spawned
+                // asynchronously and may not have landed (or may have been garbage collected) by
+                // the time we generate decide events. Capturing the in-hand share here ensures the
+                // event consumer (and thus the availability store) gets the VID even if the
+                // `vid_share2` row is absent.
+                let vid_share_bytes = match &info.vid_share {
+                    Some(share) => Some(bincode::serialize(share)?),
+                    None => {
+                        tracing::error!(
+                            view = cert.view_number().u64(),
+                            "no VID share attached to decided leaf"
+                        );
+                        None
+                    },
+                };
+                Ok((
+                    view,
+                    leaf_bytes,
+                    qc_bytes,
+                    next_epoch_qc_bytes,
+                    vid_share_bytes,
+                ))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -1608,7 +1654,7 @@ impl SequencerPersistence for Persistence {
                 let mut tx = self.db.write().await?;
                 tx.upsert(
                     "anchor_leaf2",
-                    ["view", "leaf", "qc", "next_epoch_qc"],
+                    ["view", "leaf", "qc", "next_epoch_qc", "vid_share"],
                     ["view"],
                     values.clone(),
                 )
