@@ -17,10 +17,13 @@ case "$1" in
     "espresso-dev-node")
         cargo build --locked --release --timings -p espresso-dev-node
         ;;
+    "staking-cli")
+        cargo build --locked --release --timings -p staking-cli --bin staking-cli
+        ;;
     "other")
         BINS="$(cargo metadata --no-deps --format-version 1 \
         | jq -r '.packages[].targets[] | select(.kind[] == "bin") | .name' \
-        | grep -v '^espresso-node$\|^espresso-node-sqlite$\|^espresso-dev-node$' \
+        | grep -v '^espresso-node$\|^espresso-node-sqlite$\|^espresso-dev-node$\|^staking-cli$' \
         | xargs -I{} echo --bin {} \
         | tr '\n' ' ')"
         echo "Building other binaries: $BINS"

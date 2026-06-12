@@ -1,0 +1,72 @@
+name: Build macOS
+
+on:
+  push:
+    branches:
+      - main
+      - release-*
+    tags:
+      # YYYYMMDD
+      - "20[0-9][0-9][0-1][0-9][0-3][0-9]*"
+  workflow_dispatch:
+
+concurrency:
+  # ensure non-PR jobs run in parallel
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  RUST_LOG: info,libp2p=off,node=error
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  build-macos:
+    name: Build staking-cli macOS (ARM)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Install Protoc
+        run: |
+          brew install protobuf
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Enable Rust Caching
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v3-rust
+          shared-key: build-macos-staking-cli-ARM
+          save-if: >
+            ${{ github.ref == 'refs/heads/main'
+            || startsWith(github.ref, 'refs/heads/release-')
+            || github.event_name == 'workflow_dispatch' }}
+
+      - name: Build staking-cli
+        run: |
+          scripts/ci-build-binary staking-cli
+
+      - name: Move binaries to upload directory
+        shell: bash
+        run: |
+          mkdir -p upload
+          for item in target/release/*; do
+            if [[ -f "$item" && -x "$item" ]]; then
+              mv -v "$item" ./upload
+              continue
+            fi
+          done
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-ARM-staking-cli
+          retention-days: 1
+          path: |
+            upload/staking-cli

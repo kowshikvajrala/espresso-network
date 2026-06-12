@@ -1,5 +1,5 @@
-# This workflow ensures that the nix dev env works on ARM based macOS.
-name: Nix env macOS ARM
+# This workflow ensures that the nix dev env works on macOS (both ARM and Intel).
+name: Nix env macOS
 
 on:
   push:
@@ -23,9 +23,18 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
-  nix-env-macos-arm:
+  nix-env-macos:
     timeout-minutes: 90
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Intel
+            runner: macos-13
+          - platform: ARM
+            runner: macos-latest
+    name: Nix Env macOS (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Install Nix
         uses: cachix/install-nix-action@v31
