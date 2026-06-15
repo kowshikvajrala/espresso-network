@@ -1,14 +1,7 @@
 name: Build Crypto Helper Library
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - "sdks/go/v*.*.*"
-  pull_request:
   workflow_dispatch:
-
 env:
   CARGO_INCREMENTAL: "0"
 

@@ -3,16 +3,6 @@ name: Create Release
 
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag name (e.g. 20260408, 20260408.rc1, 20260408-testing)"
-        required: true
-        type: string
-      ref:
-        description: "Branch or commit to tag (e.g. release-vid-upgrade, main, abc1234)"
-        required: true
-        type: string
-
 jobs:
   validate:
     runs-on: ubuntu-latest

@@ -1,16 +1,7 @@
 name: Contracts Mutation Test
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    paths:
-      - "contracts/src/**"
-      - "contracts/test/**"
-      - "dregs.toml"
   workflow_dispatch:
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

@@ -1,13 +1,7 @@
 name: Deployment Info
 
 on:
-  push:
-    branches:
-      - main
-  schedule:
-    - cron: "0 6 * * *" # daily at 6am UTC
   workflow_dispatch:
-
 permissions:
   contents: write
   pull-requests: write

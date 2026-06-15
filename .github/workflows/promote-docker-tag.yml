@@ -3,26 +3,6 @@ name: Promote Docker Tag
 
 on:
   workflow_dispatch:
-    inputs:
-      floating-tag:
-        description: Floating tag to update
-        required: true
-        type: choice
-        options:
-          - decaf.rc
-          - decaf
-          - mainnet.rc
-          - mainnet
-      release-tag:
-        description: Source git tag (e.g. 20260408 or 20260408.rc1)
-        required: true
-        type: string
-      skip-progression:
-        description: Skip progression check (for hotfixes)
-        required: false
-        type: boolean
-        default: false
-
 env:
   REGISTRY: ghcr.io/espressosystems/espresso-network
   REFERENCE_SERVICE: espresso-node
